@@ -149,16 +149,27 @@ func main() {
 			return
 		}
 
+		fmt.Printf("Received query: %s\n", request.Query)
+
 		result, sources, err := queryEmbeddings(conn, request.Query)
 		if err != nil {
+			fmt.Printf("Error in queryEmbeddings: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		fmt.Printf("Result: %s\n", result)
+		fmt.Printf("Sources: %v\n", sources)
+
 		c.JSON(http.StatusOK, gin.H{
-			"result": result,
+			"response": result,
 			"sources": sources,
 		})
+	})
+
+	// Serve the index.html file
+	r.GET("/", func(c *gin.Context) {
+		c.File("index.html")
 	})
 
 	// Run the Gin server
