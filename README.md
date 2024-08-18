@@ -6,7 +6,6 @@ This is a simple example of how to use ollama with a postgres database to create
 
 - Cool feature:  
 You can use the title as a category filter and if you add an '@' to the query, it will filter vector docs by that matched title, so for example: 
-
 `Is @antibionic a good company?` and it sets only docs and vectors with antibionic in the title field as the ones for the entire chat session moving forward. You can see this in the screenshots below. This means you can have different types of documents and not be forced to chat with all of them at once.
 
 It is setup on docker compose and is ready to go if you skip to that section below.
