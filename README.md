@@ -4,6 +4,8 @@ RAG is easy! Run ollama llama3.1 in golang with a postgres database.
 
 This is a simple example of how to use ollama with a postgres database to create a RAG system. It should be considered a starting point and not a full-featured system. It can be used and adapted for any data related use case for using llm's to answer questions about data.
 
+It is setup on docker compose and is ready to go if you skip to that section below.
+
 ## gui
 
 The gui includes a document manager to add and remove documents from a database and a chat interface to interact with the system. It is in the format of a single page application and is built with html, css, and javascript. The style is in the format of an emulated terminal with a black background and white / green text.
@@ -72,9 +74,20 @@ CREATE TABLE IF NOT EXISTS items (
 
 ## docker compose
 
-`docker-compose up`  
-`docker exec -it ollama ollama pull llama3.1`  
-_note: ollama runs on port 11434 and the gui is on port 8080_
+`docker-compose up --build`  
+This will pull the llama3.1 model and start the ollama server. It will also start the go server and the gui and connect to postgres and tie it all together.
+
+## ports and versions
+
+ollama - 11434  
+go server - 8080  
+postgres - 5432  
+
+go version - 1.23.0  
+ollama version - 1.10.0  
+postgres version - 16.1 as the pgvector:pg16 docker image
+
+This has not been tested on other versions but should work on other versions of the software if you know what you are doing.
 
 ## curl test no stream
 
@@ -86,8 +99,7 @@ curl http://localhost:11434/api/generate -d '{
 }'
 ```
 
-## Helpers
+### Helpers
 
 - [downloader.py](screenplays/downloader.py) - downloads a screenplay from a given URL
 - [send_screenplay.py](screenplays/send_screenplay.py) - sends a screenplay to the database
-
