@@ -1,0 +1,10 @@
+FROM ollama/ollama:latest
+
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y curl
+
+# Copy the entrypoint script
+COPY ollama-entrypoint.sh /ollama-entrypoint.sh
+RUN chmod +x /ollama-entrypoint.sh
+
+ENTRYPOINT ["/ollama-entrypoint.sh"]

@@ -111,18 +111,74 @@
                     throw new Error('Network response was not ok');
                 }
 
-                const data = await response.json();
-                console.log('Response data:', data);
-                addMessage('AI', data.response);
+                const reader = response.body.getReader();
+                let aiResponse = '';
 
-                // Update title filter display if it's in the response
-                if (data.titleFilter) {
-                    titleFilter = data.titleFilter;
-                    titleFilterDisplay.textContent = titleFilter || 'None';
+                addMessage('AI', ''); // Add an empty AI message to start
+
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    // Decode the binary data
+                    const chunk = new TextDecoder('utf-8').decode(value, { stream: true });
+                    buffer += chunk;
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep the last incomplete line in the buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            let data = line.slice(6);
+                            if (data === '[DONE]') {
+                                // Streaming is complete
+                                break;
+                            } else {
+                                console.log('Received data:', data); // Debugging log
+                                try {
+                                    // Decode base64 data
+                                    const decodedData = atob(data);
+                                    console.log('Decoded Data:', decodedData); // Debugging log
+                                    aiResponse += decodedData;
+                                    appendToLastAIMessage(decodedData);
+                                } catch (e) {
+                                    console.error('Error decoding base64:', e);
+                                }
+                            }
+                        }
+                    }
+
+                    // Introduce a delay to slow down the processing
+                    await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay
+                }
+
+                // Append any remaining buffer content
+                if (buffer) {
+                    try {
+                        const decodedData = atob(buffer);
+                        appendToLastAIMessage(decodedData);
+                    } catch (e) {
+                        console.error('Error decoding base64:', e);
+                    }
                 }
             } catch (error) {
                 console.error('Error:', error);
                 addMessage('System', 'An error occurred while processing your request.');
+            }
+        }
+
+        function appendToLastAIMessage(content) {
+            const messages = document.querySelectorAll('.message');
+            const lastAIMessage = Array.from(messages).reverse().find(msg => msg.classList.contains('ai-message'));
+            if (lastAIMessage) {
+                lastAIMessage.textContent += content;
+                lastAIMessage.style.whiteSpace = 'pre-wrap';
+                lastAIMessage.style.wordBreak = 'break-word';
+                lastAIMessage.style.lineHeight = '1.5';
+                lastAIMessage.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            } else {
+                addMessage('AI', content);
             }
         }
 
@@ -160,10 +216,9 @@
                 if (parts.length > 1) {
                     titleFilter = parts[1].split(' ')[0];
                     titleFilterDisplay.textContent = titleFilter;
-                    addMessage('System', `Title filter set to: ${titleFilter}`);
                 }
             }
-            return query; // Return the original query without modification
+            return query;
         }
 
         userInput.addEventListener('keydown', (e) => {
@@ -171,7 +226,8 @@
                 const query = userInput.value.trim();
                 if (query) {
                     addMessage('You', query);
-                    sendQuery(query); // Send the original query without processing
+                    const processedQuery = processQuery(query);
+                    sendQuery(processedQuery);
                     queryHistory.unshift(query);
                     historyIndex = -1;
                     userInput.value = '';

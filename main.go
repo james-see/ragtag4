@@ -6,9 +6,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	got "github.com/joho/godotenv"
 
 	"bytes"
 
@@ -27,10 +30,15 @@ type Session struct {
 var sessions = make(map[string]*Session)
 
 func generateEmbedding(docText string) ([]float32, error) {
-	client, err := api.ClientFromEnvironment()
+	ollamaHost := os.Getenv("OLLAMA_HOST")
+	if ollamaHost == "" {
+		ollamaHost = "localhost" // fallback to localhost if not set
+	}
+	ollamaURL, err := url.Parse(fmt.Sprintf("http://%s:11434", ollamaHost))
 	if err != nil {
 		return nil, err
 	}
+	client := api.NewClient(ollamaURL, http.DefaultClient)
 
 	// Create an embedding request
 	req := &api.EmbedRequest{
@@ -58,11 +66,11 @@ func insertItem(conn *pgx.Conn, title string, docText string, embedding []float3
 	return err
 }
 
-func queryEmbeddings(conn *pgx.Conn, query string, session *Session) (string, []string, error) {
+func queryEmbeddings(conn *pgx.Conn, query string, session *Session, c *gin.Context) error {
 	// Generate embedding for the query
 	queryEmbedding, err := generateEmbedding(query)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 
 	// Prepare the SQL query
@@ -75,7 +83,7 @@ func queryEmbeddings(conn *pgx.Conn, query string, session *Session) (string, []
 	// Query the database for similar documents
 	rows, err := conn.Query(context.Background(), sqlQuery, pgvector.NewVector(queryEmbedding))
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	defer rows.Close()
 
@@ -84,7 +92,7 @@ func queryEmbeddings(conn *pgx.Conn, query string, session *Session) (string, []
 	for rows.Next() {
 		var doc, title string
 		if err := rows.Scan(&doc, &title); err != nil {
-			return "", nil, err
+			return err
 		}
 		docs = append(docs, doc)
 		sources = append(sources, fmt.Sprintf("Source: %s", title))
@@ -94,10 +102,15 @@ func queryEmbeddings(conn *pgx.Conn, query string, session *Session) (string, []
 	contextText := strings.Join(docs, "\n\n")
 
 	// Create a chat request
-	client, err := api.ClientFromEnvironment()
-	if err != nil {
-		return "", nil, err
+	ollamaHost := os.Getenv("OLLAMA_HOST")
+	if ollamaHost == "" {
+		ollamaHost = "localhost" // fallback to localhost if not set
 	}
+	ollamaURL, err := url.Parse(fmt.Sprintf("http://%s:11434", ollamaHost))
+	if err != nil {
+		return err
+	}
+	client := api.NewClient(ollamaURL, http.DefaultClient)
 
 	// Add the new query to the session
 	session.Messages = append(session.Messages, api.Message{Role: "user", Content: query})
@@ -112,22 +125,30 @@ func queryEmbeddings(conn *pgx.Conn, query string, session *Session) (string, []
 	req := &api.ChatRequest{
 		Model:    "llama3.1",
 		Messages: messages,
+		Stream:   new(bool), // Use new(bool) to create a pointer to a boolean
 	}
+	*req.Stream = true // Set the value to true
 
-	// Call the Chat function
-	var response strings.Builder
+	// Call the Chat function with streaming
 	err = client.Chat(context.Background(), req, func(resp api.ChatResponse) error {
-		response.WriteString(resp.Message.Content)
+		// Log the response for debugging
+		log.Printf("Received response: %+v\n", resp)
+
+		// Send each token as it's generated
+		if resp.Message.Content != "" {
+			c.SSEvent("message", resp.Message.Content)
+			c.Writer.Flush() // Ensure the token is sent immediately
+		}
 		return nil
 	})
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 
 	// Add the AI response to the session
-	session.Messages = append(session.Messages, api.Message{Role: "assistant", Content: response.String()})
+	session.Messages = append(session.Messages, api.Message{Role: "assistant", Content: "Response sent via streaming"})
 
-	return response.String(), sources, nil
+	return nil
 }
 
 func getDocuments(conn *pgx.Conn) ([]map[string]interface{}, error) {
@@ -168,7 +189,15 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 	}
 	defer file.Close()
 
-	filename := filepath.Join("uploads", header.Filename)
+	// Create uploads directory if it doesn't exist
+	uploadsDir := "uploads"
+	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+		log.Printf("Error creating uploads directory: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create uploads directory"})
+		return
+	}
+
+	filename := filepath.Join(uploadsDir, header.Filename)
 	out, err := os.Create(filename)
 	if err != nil {
 		log.Printf("Error creating file: %v", err)
@@ -250,7 +279,9 @@ func chunkText(text string, chunkSize int) []string {
 
 func main() {
 	// Set up the database connection
-	conn, err := pgx.Connect(context.Background(), "postgresql://jc:!1newmedia@localhost:5432/ragtag")
+	// load env variables
+	got.Load()
+	conn, err := pgx.Connect(context.Background(), os.Getenv("DB_URL"))
 	if err != nil {
 		log.Fatal("Unable to connect to database:", err)
 	}
@@ -298,9 +329,6 @@ func main() {
 			return
 		}
 
-		fmt.Printf("Received query: %s\n", request.Query)
-		fmt.Printf("Session ID: %s\n", request.SessionID)
-
 		session, ok := sessions[request.SessionID]
 		if !ok {
 			session = &Session{
@@ -312,34 +340,24 @@ func main() {
 			sessions[request.SessionID] = session
 		}
 
-		fmt.Printf("Current title filter: %s\n", session.TitleFilter)
-
 		// Check for @title in the query
 		if strings.Contains(request.Query, "@") {
 			parts := strings.Split(request.Query, "@")
 			if len(parts) > 1 {
 				session.TitleFilter = strings.Split(parts[1], " ")[0]
 				request.Query = strings.Replace(request.Query, "@"+session.TitleFilter, "", 1)
-				fmt.Printf("New title filter set: %s\n", session.TitleFilter)
 			}
 		}
 
-		result, sources, err := queryEmbeddings(conn, request.Query, session)
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+
+		err := queryEmbeddings(conn, request.Query, session, c)
 		if err != nil {
-			fmt.Printf("Error in queryEmbeddings: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			c.SSEvent("error", err.Error())
 		}
-
-		fmt.Printf("Result: %s\n", result)
-		fmt.Printf("Sources: %v\n", sources)
-
-		c.JSON(http.StatusOK, gin.H{
-			"response":       result,
-			"sources":        sources,
-			"titleFilter":    session.TitleFilter,
-			"twitter_titles": []string{"Twitter", "Twitter API", "Twitter Terms of Service"},
-		})
+		c.SSEvent("done", "")
 	})
 
 	// Serve the index.html file

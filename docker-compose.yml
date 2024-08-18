@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: Dockerfile.ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_PORT=11434
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODEL=llama3.1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=ragtag
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ragtag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: ragtag:latest
+    container_name: api
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_URL=${DB_URL_DOCKER}
+      - OLLAMA_HOST=ollama
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
