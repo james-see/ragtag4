@@ -131,13 +131,10 @@ func queryEmbeddings(conn *pgx.Conn, query string, session *Session, c *gin.Cont
 
 	// Call the Chat function with streaming
 	err = client.Chat(context.Background(), req, func(resp api.ChatResponse) error {
-		// Log the response for debugging
-		log.Printf("Received response: %+v\n", resp)
-
-		// Send each token as it's generated
+		// Send the raw content without any modifications
 		if resp.Message.Content != "" {
 			c.SSEvent("message", resp.Message.Content)
-			c.Writer.Flush() // Ensure the token is sent immediately
+			c.Writer.Flush() // Ensure the content is sent immediately
 		}
 		return nil
 	})
@@ -352,6 +349,11 @@ func main() {
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Allow-Headers", "Content-Type")
+		c.Header("Access-Control-Allow-Methods", "POST")
+		c.Header("encoding", "chunked")
 
 		err := queryEmbeddings(conn, request.Query, session, c)
 		if err != nil {
