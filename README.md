@@ -23,13 +23,18 @@ The gui includes a document manager to add and remove documents from a database 
 - [index.html](index.html) - a simple html gui to interact with the system
 - [main.go](main.go) - the main go file to interact with the system
 
-## how
+## what I did & learned
 
-- create a table with a vector column
-- create a function to generate an embedding for a given text
-- create a function to query the table with an embedding and return the most similar texts
--- create a script to download screenplays
--- create a script to send screenplays to the database and auto-embed against with the llm
+- created a table with a vector column and learned it had to be 4096 size to match llama3.1
+- created a function to generate an embedding for a given text including splitting at 4096-bit chunks
+- created a function to query the table with an embedding and return the most similar texts within the chat
+- created a script to download screenplays
+- created a script to send screenplays to the database and auto-embed against with the llm
+- created web interface and document manager interface to do CRUD on docs and vectors and stream tokens back from chat prompt
+
+## tools
+
+Used https://cursor.sh and claude sonnet to help with codebase.
 
 ## curl add embedding example with title and doc
 
