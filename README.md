@@ -12,7 +12,7 @@ The gui includes a document manager to add and remove documents from a database 
 
 ![Screenshot 2024-08-18 at 5 04 10 PM](https://github.com/user-attachments/assets/ea0b8b04-2dba-4e5c-88fd-037fe296be87)
 
-![Screenshot 2024-08-18 at 5 04 03 PM](https://github.com/user-attachments/assets/3fc04f5a-69fb-4df9-bcde-9511bd56a07d)
+![PNG image](https://github.com/user-attachments/assets/da8a5c78-7365-459d-9f69-76956dc276df)
 
 ## key files
 
