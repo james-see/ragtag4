@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Manager</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #00ff00;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #00ff00;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #003300;
+        }
+        button {
+            background-color: #003300;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #004400;
+        }
+        a {
+            color: #00ff00;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>Document Manager</h1>
+    <a href="/" style="margin-bottom: 20px; display: block;">Back to Chat</a>
+    <table id="docTable">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Count</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Table rows will be dynamically added here -->
+        </tbody>
+    </table>
+
+    <h2>Upload New Document</h2>
+    <form id="uploadForm" enctype="multipart/form-data">
+        <input type="text" id="docTitle" name="title" placeholder="Document Title" required>
+        <input type="file" id="docFile" name="file" accept=".txt,.pdf" required>
+        <button type="submit">Upload</button>
+    </form>
+
+    <script>
+        async function fetchDocuments() {
+            const response = await fetch('/documents');
+            const documents = await response.json();
+            const tableBody = document.querySelector('#docTable tbody');
+            tableBody.innerHTML = '';
+            documents.forEach(doc => {
+                const row = tableBody.insertRow();
+                row.insertCell(0).textContent = doc.title;
+                row.insertCell(1).textContent = doc.count;
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = 'Delete';
+                deleteButton.onclick = () => deleteDocument(doc.title);
+                row.insertCell(2).appendChild(deleteButton);
+            });
+        }
+
+        async function deleteDocument(title) {
+            const response = await fetch('/delete_document', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ title: title }),
+            });
+            if (response.ok) {
+                fetchDocuments();
+            } else {
+                alert('Error deleting document');
+            }
+        }
+
+        async function uploadDocument(formData) {
+            const response = await fetch('/upload_document', {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                alert('Document uploaded successfully');
+                fetchDocuments();
+            } else {
+                alert('Error uploading document');
+            }
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            uploadDocument(formData);
+        });
+
+        fetchDocuments();
+    </script>
+</body>
+</html>
