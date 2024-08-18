@@ -10,7 +10,9 @@ It is setup on docker compose and is ready to go if you skip to that section bel
 
 The gui includes a document manager to add and remove documents from a database and a chat interface to interact with the system. It is in the format of a single page application and is built with html, css, and javascript. The style is in the format of an emulated terminal with a black background and white / green text.
 
-![https://private-user-images.githubusercontent.com/616585/358936772-ea0b8b04-2dba-4e5c-88fd-037fe296be87.png]
+![Screenshot 2024-08-18 at 5 04 10 PM](https://github.com/user-attachments/assets/ea0b8b04-2dba-4e5c-88fd-037fe296be87)
+
+![Screenshot 2024-08-18 at 5 04 03 PM](https://github.com/user-attachments/assets/3fc04f5a-69fb-4df9-bcde-9511bd56a07d)
 
 ## key files
 
