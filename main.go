@@ -14,10 +14,11 @@ import (
 	got "github.com/joho/godotenv"
 
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/ledongthuc/pdf"
 	"github.com/ollama/ollama/api"
 	"github.com/pgvector/pgvector-go"
 )
@@ -29,7 +30,7 @@ type Session struct {
 
 var sessions = make(map[string]*Session)
 
-func generateEmbedding(docText string) ([]float32, error) {
+func generateEmbedding(input string) ([]float32, error) {
 	ollamaHost := os.Getenv("OLLAMA_HOST")
 	if ollamaHost == "" {
 		ollamaHost = "localhost" // fallback to localhost if not set
@@ -43,7 +44,7 @@ func generateEmbedding(docText string) ([]float32, error) {
 	// Create an embedding request
 	req := &api.EmbedRequest{
 		Model: "llama3.1", // Ensure this is an embedding-capable model
-		Input: docText,
+		Input: input,
 	}
 
 	// Call the Embed function
@@ -211,25 +212,17 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 	}
 
 	var textContent string
-	if filepath.Ext(filename) == ".pdf" {
-		f, r, err := pdf.Open(filename)
+	if filepath.Ext(filename) == ".jpg" || filepath.Ext(filename) == ".jpeg" || filepath.Ext(filename) == ".png" {
+		// Generate image summary using the llava model
+		summary, err := generateImageSummary(filename)
 		if err != nil {
-			log.Printf("Error opening PDF: %v", err)
+			log.Printf("Error generating image summary: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		defer f.Close()
-
-		var buf bytes.Buffer
-		b, err := r.GetPlainText()
-		if err != nil {
-			log.Printf("Error extracting text from PDF: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		buf.ReadFrom(b)
-		textContent = buf.String()
+		textContent = summary
 	} else {
+		// Handle other file types (txt, pdf) as before
 		content, err := os.ReadFile(filename)
 		if err != nil {
 			log.Printf("Error reading file: %v", err)
@@ -239,23 +232,20 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 		textContent = string(content)
 	}
 
-	chunks := chunkText(textContent, 4096)
+	// Generate embedding for the text content using llama3.1
+	embedding, err := generateEmbedding(textContent)
+	if err != nil {
+		log.Printf("Error generating embedding: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	for i, chunk := range chunks {
-		chunkTitle := fmt.Sprintf("%s_chunk_%d", title, i+1)
-		embedding, err := generateEmbedding(chunk)
-		if err != nil {
-			log.Printf("Error generating embedding: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		err = insertItem(conn, chunkTitle, chunk, embedding)
-		if err != nil {
-			log.Printf("Error inserting item: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+	// Insert the document into the database
+	err = insertItem(conn, title, textContent, embedding)
+	if err != nil {
+		log.Printf("Error inserting item: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Document uploaded and processed successfully"})
@@ -272,6 +262,71 @@ func chunkText(text string, chunkSize int) []string {
 		chunks = append(chunks, strings.Join(words[i:end], " "))
 	}
 	return chunks
+}
+
+func generateImageSummary(imagePath string) (string, error) {
+	imageData, err := os.ReadFile(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image file: %w", err)
+	}
+
+	base64Image := base64.StdEncoding.EncodeToString(imageData)
+
+	payload := map[string]interface{}{
+		"model":  "llava",
+		"prompt": "Describe this image in detail:",
+		"images": []string{base64Image},
+		"stream": true,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON payload: %w", err)
+	}
+
+	ollamaHost := os.Getenv("OLLAMA_HOST")
+	if ollamaHost == "" {
+		ollamaHost = "localhost"
+	}
+	url := fmt.Sprintf("http://%s:11434/api/generate", ollamaHost)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("failed to send POST request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected response status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var summary strings.Builder
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		var result struct {
+			Response string `json:"response"`
+			Done     bool   `json:"done"`
+		}
+		if err := decoder.Decode(&result); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("failed to decode JSON response: %w", err)
+		}
+		summary.WriteString(result.Response)
+		if result.Done {
+			break
+		}
+	}
+
+	if summary.Len() == 0 {
+		return "", fmt.Errorf("empty response from llava model")
+	}
+
+	fmt.Println("The summary of the image is: ", summary.String())
+
+	return summary.String(), nil
 }
 
 func main() {
