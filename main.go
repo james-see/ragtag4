@@ -497,6 +497,110 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"twitter_titles": titles})
 	})
 
+	// Serve the describer.html file
+	r.GET("/describer", func(c *gin.Context) {
+		c.File("describer.html")
+	})
+
+	// Handle image description
+	r.POST("/describe_image", func(c *gin.Context) {
+		file, _, err := c.Request.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		defer file.Close()
+
+		// Create a temporary file to store the uploaded image
+		tempFile, err := os.CreateTemp("", "uploaded-*.jpg")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer os.Remove(tempFile.Name())
+		defer tempFile.Close()
+
+		// Copy the uploaded file to the temporary file
+		_, err = io.Copy(tempFile, file)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Allow-Headers", "Content-Type")
+		c.Header("Access-Control-Allow-Methods", "POST")
+		c.Header("encoding", "chunked")
+
+		imageData, err := os.ReadFile(tempFile.Name())
+		if err != nil {
+			c.SSEvent("error", err.Error())
+			return
+		}
+
+		base64Image := base64.StdEncoding.EncodeToString(imageData)
+
+		payload := map[string]interface{}{
+			"model":  "llava",
+			"prompt": "Describe this image in detail:",
+			"images": []string{base64Image},
+			"stream": true,
+		}
+
+		jsonPayload, err := json.Marshal(payload)
+		if err != nil {
+			c.SSEvent("error", err.Error())
+			return
+		}
+
+		ollamaHost := os.Getenv("OLLAMA_HOST")
+		if ollamaHost == "" {
+			ollamaHost = "localhost"
+		}
+		url := fmt.Sprintf("http://%s:11434/api/generate", ollamaHost)
+
+		resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+		if err != nil {
+			c.SSEvent("error", err.Error())
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			c.SSEvent("error", fmt.Sprintf("Unexpected response status: %d, body: %s", resp.StatusCode, string(body)))
+			return
+		}
+
+		decoder := json.NewDecoder(resp.Body)
+		for {
+			var result struct {
+				Response string `json:"response"`
+				Done     bool   `json:"done"`
+			}
+			if err := decoder.Decode(&result); err != nil {
+				if err == io.EOF {
+					break
+				}
+				c.SSEvent("error", err.Error())
+				return
+			}
+			if result.Response != "" {
+				c.SSEvent("message", result.Response)
+				c.Writer.Flush() // Ensure the content is sent immediately
+			}
+			if result.Done {
+				break
+			}
+		}
+
+		c.SSEvent("done", "")
+	})
+
 	// Run the Gin server
 	r.Run(":8080")
 }
