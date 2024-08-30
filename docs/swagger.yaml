@@ -1,0 +1,15 @@
+basePath: /
+host: localhost:8080
+info:
+  contact:
+    email: james@enigmalabs.com
+    name: James Campbell
+  description: This is the API for the RAGTAG system.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: RAGTAG API
+  version: "1.0"
+paths: {}
+swagger: "2.0"

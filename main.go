@@ -23,6 +23,20 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+// @title RAGTAG API
+// @version 1.0
+// @description This is the API for the RAGTAG system.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name James Campbell
+// @contact.email james@enigmalabs.com
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8080
+// @BasePath /
+
 type Session struct {
 	Messages    []api.Message
 	TitleFilter string
