@@ -17,8 +17,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
+	"unicode/utf8"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/ledongthuc/pdf"
 	"github.com/ollama/ollama/api"
 	"github.com/pgvector/pgvector-go"
 )
@@ -225,8 +228,22 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 		return
 	}
 
+	// Debug: log file size and first 16 bytes
+	stat, statErr := os.Stat(filename)
+	if statErr == nil {
+		log.Printf("Uploaded file size: %d bytes", stat.Size())
+		fcheck, ferr := os.Open(filename)
+		if ferr == nil {
+			buf := make([]byte, 16)
+			n, _ := fcheck.Read(buf)
+			log.Printf("First 16 bytes: % x", buf[:n])
+			fcheck.Close()
+		}
+	}
+
 	var textContent string
-	if filepath.Ext(filename) == ".jpg" || filepath.Ext(filename) == ".jpeg" || filepath.Ext(filename) == ".png" {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
 		// Generate image summary using the llava model
 		summary, err := generateImageSummary(filename)
 		if err != nil {
@@ -235,8 +252,59 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 			return
 		}
 		textContent = summary
+	} else if ext == ".pdf" {
+		// Check PDF signature before parsing
+		f, rErr := os.Open(filename)
+		if rErr != nil {
+			log.Printf("Error opening PDF: %v", rErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": rErr.Error()})
+			return
+		}
+		defer f.Close()
+		buf := make([]byte, 5)
+		_, err := f.Read(buf)
+		if err != nil || string(buf) != "%PDF-" {
+			log.Printf("Uploaded file is not a valid PDF (missing %PDF- header): %s", filename)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Uploaded file is not a valid PDF (missing %PDF- header)"})
+			return
+		}
+		stat, _ := f.Stat()
+		// Loosen EOF check: search last 1KB for %%EOF
+		eofCheckSize := int64(1024)
+		if stat.Size() < eofCheckSize {
+			eofCheckSize = stat.Size()
+		}
+		endBuf := make([]byte, eofCheckSize)
+		_, err = f.ReadAt(endBuf, stat.Size()-eofCheckSize)
+		if err != nil || !strings.Contains(string(endBuf), "%%EOF") {
+			log.Printf("Uploaded file is not a valid PDF (missing %%EOF): %s", filename)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Uploaded file is not a valid PDF (missing %%EOF)"})
+			return
+		}
+		// Reset file pointer for pdf.NewReader
+		f.Seek(0, 0)
+		reader, pdfErr := pdf.NewReader(f, stat.Size())
+		if pdfErr != nil {
+			log.Printf("Error reading PDF: %v", pdfErr)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Uploaded file is not a valid PDF or is corrupted"})
+			return
+		}
+		var sb strings.Builder
+		for i := 1; i <= reader.NumPage(); i++ {
+			page := reader.Page(i)
+			if page.V.IsNull() {
+				continue
+			}
+			content, err := page.GetPlainText(nil)
+			if err != nil {
+				log.Printf("Error extracting text from page %d: %v", i, err)
+				continue
+			}
+			sb.WriteString(content)
+		}
+		textContent = sb.String()
+		log.Printf("Extracted text length: %d", len(textContent))
 	} else {
-		// Handle other file types (txt, pdf) as before
 		content, err := os.ReadFile(filename)
 		if err != nil {
 			log.Printf("Error reading file: %v", err)
@@ -244,6 +312,16 @@ func uploadDocument(c *gin.Context, conn *pgx.Conn) {
 			return
 		}
 		textContent = string(content)
+	}
+
+	// Remove null bytes (Postgres TEXT cannot contain 0x00)
+	textContent = strings.ReplaceAll(textContent, "\x00", "")
+
+	// Validate UTF-8
+	if !utf8.ValidString(textContent) {
+		log.Printf("Invalid UTF-8 detected in document: %s", filename)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Uploaded document is not valid UTF-8"})
+		return
 	}
 
 	// Generate embedding for the text content using llama3.1

@@ -71,8 +71,11 @@
 
     <script>
         async function fetchDocuments() {
-            const response = await fetch('/documents');
-            const documents = await response.json();
+            let documents = [];
+            try {
+                documents = await fetch('/documents').then(r => r.json());
+                if (!Array.isArray(documents)) documents = [];
+            } catch {}
             const tableBody = document.querySelector('#docTable tbody');
             tableBody.innerHTML = '';
             documents.forEach(doc => {
@@ -110,7 +113,12 @@
                 alert('Document uploaded successfully');
                 fetchDocuments();
             } else {
-                alert('Error uploading document');
+                let msg = 'Error uploading document';
+                try {
+                    const data = await response.json();
+                    if (data && data.error) msg = data.error;
+                } catch {}
+                alert(msg);
             }
         }
 

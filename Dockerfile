@@ -1,5 +1,5 @@
 # golang image and setup for the gin server
-FROM golang:1.23.0
+FROM golang:1.24.1
 
 # Set the working directory in the container
 WORKDIR /app

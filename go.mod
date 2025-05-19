@@ -1,12 +1,12 @@
 module github.com/james-see/ragtag4
 
-go 1.23.0
+go 1.24.1
 
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/joho/godotenv v1.5.1
-	github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/ollama/ollama v0.3.6
 	github.com/pgvector/pgvector-go v0.2.2
 )

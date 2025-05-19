@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS items (
 );
 ```
 
+## docker
+
+Do this first:  
+`docker build -t ragtag .`
+
 ## docker compose
 
 `docker-compose up --build`  
